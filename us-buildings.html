@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>US Building Footprints</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/pmtiles@3.0.6/dist/pmtiles.js"></script>
+  <style>
+    body { margin: 0; padding: 0; }
+    #map { width: 100vw; height: 100vh; }
+
+    #search {
+      position: absolute; top: 16px; left: 16px; z-index: 1;
+      padding: 10px 14px; font-size: 15px; border: none; border-radius: 8px;
+      background: rgba(0,0,0,0.8); color: white; width: 220px; outline: none;
+    }
+    #search::placeholder { color: #888; }
+    #search:focus { box-shadow: 0 0 0 2px white; }
+
+    #suggestions {
+      position: absolute; top: 52px; left: 16px; z-index: 2;
+      width: 220px; background: rgba(0,0,0,0.9); border-radius: 8px;
+      overflow: hidden; display: none; backdrop-filter: blur(8px);
+    }
+    .suggestion {
+      padding: 8px 14px; cursor: pointer; font: 13px -apple-system, sans-serif;
+      color: #ccc; border-bottom: 1px solid rgba(255,255,255,0.05);
+      text-overflow: ellipsis; overflow: hidden; white-space: nowrap;
+    }
+    .suggestion:last-child { border-bottom: none; }
+    .suggestion:hover, .suggestion.active { background: rgba(255,255,255,0.1); color: white; }
+
+    #legend {
+      position: absolute; bottom: 60px; left: 16px; z-index: 1;
+      background: rgba(0,0,0,0.7); padding: 10px 14px; border-radius: 8px;
+      color: white; font: 12px -apple-system, sans-serif;
+      min-width: 140px;
+    }
+    #legend h4 { margin: 0 0 6px 0; font-size: 12px; line-height: 1.4; }
+    #legend-bar {
+      width: 120px; height: 12px; border-radius: 3px;
+      background: linear-gradient(to right, #7b2fa0, #a62098, #d4447a, #e85362, #fcae12, #fcffa4);
+    }
+    #legend-labels { display: flex; justify-content: space-between; font-size: 10px; color: #aaa; margin-top: 3px; }
+    #legend-nodata {
+      display: flex; align-items: center; gap: 6px;
+      margin-top: 8px; font-size: 11px; color: #aaa;
+    }
+    #legend-nodata span {
+      width: 12px; height: 12px; border-radius: 2px;
+      background: #5b8cb8; display: inline-block;
+    }
+
+    #info {
+      position: absolute; bottom: 20px; left: 16px; z-index: 1;
+      background: rgba(0,0,0,0.7); color: #aaa; padding: 8px 12px;
+      border-radius: 6px; font: 12px -apple-system, sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <input id="search" type="text" placeholder="Search a place..." autofocus />
+  <div id="suggestions"></div>
+
+  <div id="legend">
+    <h4 id="legend-title">Building height (ft)</h4>
+    <div id="legend-bar"></div>
+    <div id="legend-labels"></div>
+    <div id="legend-nodata"><span></span> No height data</div>
+  </div>
+
+  <div id="info">Data: Overture Maps 2026-03-18.0 · US building footprints with height</div>
+
+  <script>
+    const protocol = new pmtiles.Protocol();
+    maplibregl.addProtocol('pmtiles', protocol.tile);
+
+    const BUILDINGS_URL = 'pmtiles://https://pub-eae9b1655b0e4e5c8d9320c0a208d2ef.r2.dev/us_buildings_raw.pmtiles';
+
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: {
+        version: 8,
+        glyphs: 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf',
+        sources: {
+          'versatiles': {
+            type: 'vector',
+            tiles: ['https://tiles.versatiles.org/tiles/osm/{z}/{x}/{y}'],
+            maxzoom: 14,
+            attribution: '&copy; OpenStreetMap'
+          },
+          'buildings': {
+            type: 'vector',
+            url: BUILDINGS_URL
+          }
+        },
+        layers: [
+          // ── Background (dark navy — water reads as darker gaps) ────────────
+          {
+            id: 'background',
+            type: 'background',
+            paint: { 'background-color': '#0a0e1f' }
+          },
+
+          // ── Buildings without height (behind) ──────────────────────────────
+          {
+            id: 'building-noheight',
+            type: 'fill',
+            source: 'buildings',
+            'source-layer': 'building',
+            minzoom: 3,
+            filter: ['!', ['has', 'height']],
+            paint: {
+              'fill-color': '#5b8cb8',
+              'fill-opacity': ['interpolate', ['linear'], ['zoom'], 3, 0.3, 9, 0.5, 11, 0.3, 13, 0.1]
+            }
+          },
+
+          // ── Buildings with height (on top) ─────────────────────────────────
+          {
+            id: 'building-fill',
+            type: 'fill',
+            source: 'buildings',
+            'source-layer': 'building',
+            minzoom: 3,
+            filter: ['has', 'height'],
+            paint: {
+              'fill-color': ['interpolate', ['linear'], ['get', 'height'],
+                0,     '#7b2fa0',
+                7.6,   '#a62098',
+                22.9,  '#d4447a',
+                61,    '#e85362',
+                152.4, '#fcae12',
+                304.8, '#fcffa4'
+              ],
+              'fill-opacity': ['interpolate', ['linear'], ['zoom'], 3, 0.4, 7, 0.5, 9, 0.65, 11, 0.8, 13, 0.9]
+            }
+          },
+
+          // ── Street names only at high zoom ─────────────────────────────────
+          {
+            id: 'road-labels',
+            type: 'symbol',
+            source: 'versatiles',
+            'source-layer': 'street_labels',
+            minzoom: 15,
+            layout: {
+              'text-field': ['get', 'name'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': ['interpolate', ['linear'], ['zoom'], 15, 11, 18, 14],
+              'symbol-placement': 'line',
+              'text-max-angle': 30,
+              'text-padding': 2
+            },
+            paint: {
+              'text-color': 'rgba(200, 200, 200, 0.8)',
+              'text-halo-color': 'rgba(0, 0, 0, 0.8)',
+              'text-halo-width': 1.5
+            }
+          }
+        ]
+      },
+      center: [-98.5, 39.5],
+      zoom: 5,
+      maxPitch: 0
+    });
+
+    map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+    // ── Legend ────────────────────────────────────────────────────────────────
+    const legendTitle  = document.getElementById('legend-title');
+    const legendLabels = document.getElementById('legend-labels');
+
+    function updateLegend() {
+      legendTitle.textContent = 'Building height (ft)';
+      legendLabels.innerHTML = '<span>0</span><span>75</span><span>500</span><span>1000+</span>';
+    }
+
+    map.on('load', updateLegend);
+
+    // ── Search (autocomplete) ────────────────────────────────────────────────
+    const search = document.getElementById('search');
+    const suggestionsEl = document.getElementById('suggestions');
+    let debounceTimer, activeIdx = -1;
+
+    function flyToResult(r) {
+      const bbox = r.boundingbox;
+      if (bbox) {
+        map.fitBounds(
+          [[parseFloat(bbox[2]), parseFloat(bbox[0])],
+           [parseFloat(bbox[3]), parseFloat(bbox[1])]],
+          { padding: 50, duration: 2000, maxZoom: 15 }
+        );
+      } else {
+        map.flyTo({ center: [parseFloat(r.lon), parseFloat(r.lat)], zoom: 14, duration: 2000 });
+      }
+      search.value = r.display_name.split(',').slice(0, 2).join(',');
+      suggestionsEl.style.display = 'none';
+      search.blur();
+    }
+
+    function showSuggestions(results) {
+      if (!results.length) { suggestionsEl.style.display = 'none'; return; }
+      suggestionsEl._results = results;
+      activeIdx = -1;
+      suggestionsEl.innerHTML = results.map((r, i) =>
+        `<div class="suggestion" data-i="${i}">${r.display_name.split(',').slice(0, 3).join(',')}</div>`
+      ).join('');
+      suggestionsEl.style.display = 'block';
+      suggestionsEl.querySelectorAll('.suggestion').forEach(el =>
+        el.addEventListener('click', () => flyToResult(results[parseInt(el.dataset.i)]))
+      );
+    }
+
+    function updateActive() {
+      suggestionsEl.querySelectorAll('.suggestion').forEach((el, i) =>
+        el.classList.toggle('active', i === activeIdx)
+      );
+    }
+
+    search.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      const q = search.value.trim();
+      if (q.length < 3) { suggestionsEl.style.display = 'none'; return; }
+      debounceTimer = setTimeout(() => {
+        fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5`)
+          .then(r => r.json()).then(showSuggestions);
+      }, 400);
+    });
+
+    search.addEventListener('keydown', (e) => {
+      const items = suggestionsEl.querySelectorAll('.suggestion');
+      if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = Math.min(activeIdx + 1, items.length - 1); updateActive(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = Math.max(activeIdx - 1, 0); updateActive(); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (activeIdx >= 0 && suggestionsEl._results) flyToResult(suggestionsEl._results[activeIdx]);
+        else if (suggestionsEl._results?.length) flyToResult(suggestionsEl._results[0]);
+      }
+      else if (e.key === 'Escape') suggestionsEl.style.display = 'none';
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!search.contains(e.target) && !suggestionsEl.contains(e.target))
+        suggestionsEl.style.display = 'none';
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+# Large data files
+*.geojsonl
+*.geojson
+*.zip
+*.pmtiles
+
+# Images / generated outputs
+*.png
+*.pdf
+Rplots.pdf
+
+# Leaflet auto-generated file directories
+boston-leaflet_files/
+glendale-leaflet_files/
+
+# R session artifacts
+.Rhistory
+.RData
+.Rproj.user/
