@@ -58,6 +58,15 @@
       background: rgba(0,0,0,0.7); color: #aaa; padding: 8px 12px;
       border-radius: 6px; font: 12px -apple-system, sans-serif;
     }
+
+    #toggles {
+      position: absolute; bottom: 160px; left: 16px; z-index: 1;
+      background: rgba(0,0,0,0.7); color: white; padding: 8px 12px;
+      border-radius: 8px; font: 12px -apple-system, sans-serif;
+      display: none; align-items: center; gap: 8px; cursor: pointer;
+      user-select: none;
+    }
+    #toggles input { cursor: pointer; margin: 0; }
   </style>
 </head>
 <body>
@@ -72,6 +81,8 @@
     <div id="legend-labels"></div>
     <div id="legend-nodata"><span></span> No height data</div>
   </div>
+
+  <label id="toggles"><input type="checkbox" id="toggle-streets"> Show street names</label>
 
   <div id="info">Data: Overture Maps 2026-03-18.0 · US building footprints with height</div>
 
@@ -99,11 +110,11 @@
           }
         },
         layers: [
-          // ── Background (dark navy — water reads as darker gaps) ────────────
+          // ── Background ─────────────────────────────────────────────────────
           {
             id: 'background',
             type: 'background',
-            paint: { 'background-color': '#0a0e1f' }
+            paint: { 'background-color': '#05070f' }
           },
 
           // ── Buildings without height (behind) ──────────────────────────────
@@ -141,17 +152,18 @@
             }
           },
 
-          // ── Street names only at high zoom ─────────────────────────────────
+          // ── Street names only at high zoom (off by default) ────────────────
           {
             id: 'road-labels',
             type: 'symbol',
             source: 'versatiles',
             'source-layer': 'street_labels',
-            minzoom: 15,
+            minzoom: 13,
             layout: {
+              'visibility': 'none',
               'text-field': ['get', 'name'],
               'text-font': ['Noto Sans Regular'],
-              'text-size': ['interpolate', ['linear'], ['zoom'], 15, 11, 18, 14],
+              'text-size': ['interpolate', ['linear'], ['zoom'], 13, 8, 15, 11, 18, 14],
               'symbol-placement': 'line',
               'text-max-angle': 30,
               'text-padding': 2
@@ -164,8 +176,8 @@
           }
         ]
       },
-      center: [-98.5, 39.5],
-      zoom: 5,
+      bounds: [[-125, 24], [-66, 50]],
+      fitBoundsOptions: { padding: 20 },
       maxPitch: 0
     });
 
@@ -181,6 +193,17 @@
     }
 
     map.on('load', updateLegend);
+
+    // ── Street-name toggle (defaults off, only shown at z≥13) ────────────────
+    const togglesEl = document.getElementById('toggles');
+    document.getElementById('toggle-streets').addEventListener('change', (e) => {
+      map.setLayoutProperty('road-labels', 'visibility', e.target.checked ? 'visible' : 'none');
+    });
+    function updateToggleVisibility() {
+      togglesEl.style.display = map.getZoom() >= 13 ? 'flex' : 'none';
+    }
+    map.on('zoom', updateToggleVisibility);
+    map.on('load', updateToggleVisibility);
 
     // ── Search (autocomplete) ────────────────────────────────────────────────
     const search = document.getElementById('search');
